@@ -45,6 +45,9 @@ run_dir/
 - Individual `.txt` files give the full LLM prompt + response for any single prediction
 - `diagnostics/` separates "what went wrong" from "what are the results"
 
+When comparing multiple methods, this inner structure nests inside an experiment
+tracking layout (see section 14).
+
 ## 2. README.txt: The Most Important File
 
 Every run must have a README.txt that a stranger (or yourself in 3 months) can
@@ -117,25 +120,7 @@ After every run, the first thing to check is not the accuracy number — it's:
 3. **Value ranges**: What's the actual min/max per group? Comparing pred_mean
    vs actual_mean instantly reveals systematic biases.
 
-## 7. Config Reproducibility
-
-Save the **resolved** config, not a reference to a config file:
-
-```json
-{
-  "mode": "zero_shot",
-  "base_model": "org/model-name",
-  "condition": "demographics",
-  "seed": 42,
-  "batch_size": 8,
-  "max_new_tokens": 16
-}
-```
-
-If you only save `"config": "configs/experiment.yaml"`, the config file may change
-before you look at the results.
-
-## 8. Train/Test Split Hygiene
+## 7. Train/Test Split Hygiene
 
 - Split at the **entity level** (person, not observation). All observations from
   one entity must be in the same split.
@@ -146,7 +131,7 @@ before you look at the results.
   split. Often they didn't, and you need to note you're evaluating their
   predictions on your test subset.
 
-## 9. Smoke Test Before Full Run
+## 8. Smoke Test Before Full Run
 
 Before launching a multi-hour training or a large-scale inference run:
 
@@ -158,7 +143,7 @@ Before launching a multi-hour training or a large-scale inference run:
 This catches model loading issues, auth failures, prompt formatting bugs, and
 parsing errors before you waste hours on a broken pipeline.
 
-## 10. Post-Run Review Checklist
+## 9. Post-Run Review Checklist
 
 After every experiment run, systematically check:
 
@@ -172,13 +157,163 @@ After every experiment run, systematically check:
 
 ---
 
+## 10. Shared Core, Isolated Pipelines
+
+Separate universal infrastructure from method-specific logic:
+
+```
+src/
+├── core/                    ← Shared by ALL pipelines
+│   ├── types.py             ← Sample, Prediction (universal currency)
+│   ├── data.py              ← DataLoader (one source of truth)
+│   ├── evaluation.py        ← evaluate() (unified metrics)
+│   ├── experiment.py        ← ExperimentTracker (lifecycle)
+│   └── utils.py             ← JSON parsing, retry, formatting
+│
+├── pipelines/               ← Each method is self-contained
+│   ├── method_a/
+│   │   ├── __init__.py      ← Exports Config + Pipeline
+│   │   ├── config.py        ← Dataclass with to_dict/from_dict/validate
+│   │   └── runner.py        ← Pipeline.run(train, val, test)
+│   └── method_b/
+│       └── ...
+│
+└── run_experiment.py        ← Dispatcher: --method flag → pipeline
+```
+
+Adding a new method means creating a directory and registering it in the
+dispatcher. Zero changes to existing pipelines, data loading, or evaluation.
+
+## 11. Universal Type Contracts
+
+All pipelines consume `Sample` and produce `Prediction`. No exceptions.
+
+- **Sample**: stores raw labels (floats), converts to classification/binary/continuous
+  on demand via `get_label(trait, mode)`. One storage format, many views.
+- **Prediction**: carries `sample_id`, `trait`, `value`, plus a `metadata` dict for
+  method-specific info.
+- **Evaluation**: a single `evaluate(predictions, ground_truth, trait)` handles any
+  prediction type — bins regression outputs into classes, maps categorical outputs to
+  ordinals for correlation — so every method gets the same metrics automatically.
+
+This makes methods directly comparable. Swap pipeline A for pipeline B and the rest
+of the system doesn't change.
+
+## 12. Config as Dataclass, Not Dict
+
+If you only save `"config": "configs/experiment.yaml"`, the config file may change
+before you look at the results. And if configs are plain dicts, typos become silent
+bugs. Solve both problems by making every pipeline config a dataclass with three
+required methods:
+
+```python
+@dataclass
+class PipelineConfig:
+    learning_rate: float = 1e-3
+    batch_size: int = 4
+    traits: list[str] = field(default_factory=lambda: ["extraversion"])
+
+    def to_dict(self) -> dict:       # Serializes resolved values for hashing and storage
+        ...
+    @classmethod
+    def from_dict(cls, d) -> Self:   # Deserializes from YAML
+        ...
+    def validate(self) -> list[str]: # Returns warnings for suspicious values
+        ...
+```
+
+`to_dict()` produces the resolved config that gets saved with every experiment —
+no mutable file references, no missing fields. Dataclasses reject unknown fields
+at construction. `validate()` catches "technically valid but probably wrong" configs
+(learning rate of 100, negative epochs).
+
+Support config inheritance (`_base: base.yaml`) and presets
+(`_presets: [fast_test, binary]`) for composable experiment variants:
+
+```yaml
+# configs/method_a/experiment_1.yaml
+_base: base.yaml
+_presets:
+  - fast_test        # small sample sizes for iteration
+  - binary           # median-split labels
+
+traits: [extraversion, agreeableness]
+learning_rate: 5e-4
+```
+
+Presets let you mix-and-match parameter groups without a combinatorial explosion of
+config files.
+
+## 13. Multi-Stage Pipelines with Stage Caching
+
+For complex pipelines, define stages as independent units:
+
+```python
+class Stage(ABC):
+    name: str
+    depends_on: list[str]          # Explicit DAG
+
+    def run(self, inputs: dict) -> StageResult
+    def load_cached(self) -> dict | None
+    def save_outputs(self, outputs: dict, metrics: dict)
+```
+
+Each stage reads from previous stages' outputs, saves its own outputs with a manifest,
+and can be independently cached or re-run. The runner orchestrates:
+check cache → run if missing → pass outputs forward.
+
+A 3-stage pipeline (extract → score → predict) where stage 1 takes 2 hours should not
+re-run stage 1 when you're iterating on stage 3. Stage caching makes this automatic.
+
+## 14. Experiment Lifecycle and Deduplication
+
+Every pipeline run follows the same lifecycle via `ExperimentTracker`:
+
+1. **prepare()** — compute experiment identity from config hash + git commit.
+   Check registry: if this identity already completed, skip.
+2. **start()** — create output dirs, write frozen config snapshot, record git state
+3. **complete(metrics)** or **fail(error)** — update registry, save results
+
+```
+identity = {config_hash[:8]}_{git_commit_short}
+```
+
+Same config + same code = same identity → skip. Changed config or changed code =
+new identity → run. This prevents re-running completed experiments and prevents
+silently comparing results from different code versions.
+
+A registry file (JSON with file locking) tracks status per identity. Failed
+experiments are recorded (not just missing), so you don't waste time re-running
+known failures.
+
+The experiment output wraps around the per-run structure from section 1:
+
+```
+outputs/{method}/
+├── registry.json                ← All experiments for this method
+└── experiments/
+    └── {identity}/
+        ├── config.yaml          ← Frozen config snapshot (from to_dict)
+        ├── metadata.json        ← Git commit, timestamp, host
+        ├── metrics.json         ← Final evaluation results
+        ├── stages/              ← Per-stage intermediate outputs (section 13)
+        ├── llm_logs/            ← LLM I/O for debugging (section 5)
+        ├── groups/              ← Per-group drill-down (section 1)
+        └── diagnostics/         ← Parse failures, outliers (section 6)
+```
+
+---
+
 ## Anti-Patterns
 
 - **Flat directory with thousands of files** — use group/entity subdirectories
 - **Parquet-only outputs** — humans can't inspect without writing code
 - **Discarding raw outputs after parsing** — you will need them for debugging
 - **Undocumented runs** — saving metrics without context on what was tested
-- **Config-by-reference** — pointing to a mutable config file instead of saving resolved values
+- **Configs as raw dicts or by reference** — dicts accept typos silently; file references go stale. Use typed dataclasses that serialize resolved values
 - **Silent failures** — parse errors that decrement the count but don't tell you what happened
 - **Forgetting input prompts** — saving the output but not the input that produced it
 - **Optimistic sorting** — showing best results first; you need to see failures first
+- **Shared mutable state between pipelines** — pipelines should communicate only through typed inputs/outputs, never global state
+- **Method-specific evaluation logic** — if pipeline A computes F1 differently than pipeline B, comparison is meaningless
+- **No deduplication** — re-running identical experiments wastes compute and creates confusion about which result is canonical
