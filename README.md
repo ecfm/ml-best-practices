@@ -354,6 +354,116 @@ outputs/{method}/
 
 ---
 
+## 16. Real-Time Progress Monitoring
+
+Long-running jobs (training, batch inference) MUST produce output within the first
+few minutes or you risk wasting hours on a silently broken run.
+
+### The 5-Minute Rule
+
+If no progress output appears within 5 minutes of launch, something is wrong.
+Every long-running job must:
+
+1. **Log step 1 immediately.** Don't set `logging_steps=10` and wait 15 minutes
+   for the first sign of life. Log every step (or at least step 1) so you can
+   compute s/step and ETA from the very first iteration.
+
+2. **Write to a real-time log file**, not just stdout. Stdout may be buffered,
+   piped, or lost. Always write to `run_dir/training.log` or similar:
+
+   ```python
+   log_file = open(run_dir / "training.log", "w")
+   def _log(msg: str) -> None:
+       ts = time.strftime("%H:%M:%S")
+       line = f"[{ts}] {msg}"
+       print(line, flush=True)
+       log_file.write(line + "\n")
+       log_file.flush()
+   ```
+
+   Monitor with `tail -f run_dir/training.log`.
+
+3. **Validate timing on step 1 before walking away.** After launching, wait for
+   step 1, compute: `total_steps × s_per_step = ETA`. If ETA is unreasonable,
+   kill immediately and fix config. A 3-epoch training run showing 85s/step ×
+   7389 steps = 175 hours means your config is wrong — don't let it run overnight
+   hoping it speeds up.
+
+4. **Batch long blocking calls.** If a library call like `llm.generate()` blocks
+   for the entire dataset with no progress callback, split into batches and log
+   between them:
+
+   ```python
+   BATCH = 5000
+   for start in range(0, len(prompts), BATCH):
+       batch = prompts[start:start+BATCH]
+       outputs.extend(model.generate(batch))
+       _log(f"Generated {start+BATCH}/{len(prompts)} ({elapsed}s, ~{eta}s remaining)")
+   ```
+
+### What to Log
+
+Every training step should log:
+- Step N / total steps
+- Loss (train and/or eval)
+- Elapsed time and ETA
+- Learning rate (if using schedule)
+
+Every inference batch should log:
+- N processed / total
+- Elapsed time, prompts/second, ETA
+- Parse failure count so far
+
+### Pre-Flight Validation
+
+Before launching multi-hour jobs, validate:
+- [ ] Expected s/step matches hardware capability (benchmark 1-2 steps first)
+- [ ] Total ETA is acceptable
+- [ ] GPU memory usage leaves headroom (check after step 1)
+- [ ] Data pipeline produces correct shapes (spot-check first batch)
+- [ ] Output directory is writable and has enough disk space
+
+## 17. Fail-Fast Principle
+
+Silent failures are the most expensive bugs in ML. A model that trains for 8 hours
+on corrupted data, or inference that runs for 2 hours producing garbage, wastes
+both compute and human attention.
+
+### Rules
+
+1. **Never use try/except to silence errors.** Let exceptions propagate. Only catch
+   at true system boundaries (e.g., parsing one user input out of thousands) and
+   always log the caught exception with a warning.
+
+2. **Never use `.get(key, default)` for required config values.** If a config key
+   is missing, that's a bug — let it throw `KeyError` immediately rather than
+   silently using a default that produces wrong results.
+
+3. **Validate inputs at entry points.** Check that files exist, datasets are
+   non-empty, GPUs are available, and model names resolve before doing any
+   expensive work.
+
+4. **Assert invariants, don't check-and-continue.** If your training data should
+   have >0 examples, `assert len(train_ds) > 0` is better than
+   `if len(train_ds) == 0: print("warning")`.
+
+5. **Fail on the first bad example, not the last.** If parsing fails, raise
+   immediately with context (which example, what the raw output was, what was
+   expected). Don't silently count failures and report "80 parse failures" at
+   the end with no way to debug them.
+
+### Common ML Silent Failures
+
+- `device_map="auto"` silently uses pipeline parallelism (1 GPU idle during
+  training). Use explicit device placement or DDP/FSDP.
+- `max_length` set too high → extreme padding → 10x slower training with no error.
+- Tokenizer `pad_token` defaulting to `eos_token` → model learns to predict EOS
+  everywhere. Usually works but can cause subtle generation issues.
+- `gradient_accumulation_steps` silently changes effective batch size. Always log
+  the effective batch size at training start.
+- Data collator silently truncating sequences longer than model's max position
+  embeddings — no error, just wrong results.
+
 ## Anti-Patterns
 
 - **Flat directory with thousands of files** — use group/entity subdirectories
