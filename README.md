@@ -46,7 +46,7 @@ run_dir/
 - `diagnostics/` separates "what went wrong" from "what are the results"
 
 When comparing multiple methods, this inner structure nests inside an experiment
-tracking layout (see section 14).
+tracking layout (see section 15).
 
 ## 2. README.txt: The Most Important File
 
@@ -155,9 +155,59 @@ After every experiment run, systematically check:
 - [ ] Compare against baselines — does the ranking make sense?
 - [ ] Update experiment notes with findings
 
+## 10. vLLM and Prefix Caching for Batch Inference
+
+Use [vLLM](https://github.com/vllm-project/vllm) instead of HuggingFace
+`model.generate()` for batch inference. vLLM provides continuous batching,
+PagedAttention, and automatic prefix caching — often 10-50x faster.
+
+**Prompt ordering matters for prefix caching.** When you have N entities × M
+items (e.g. 589 people × 72 survey questions), all prompts for the same entity
+share a long prefix (system prompt + entity profile). Sort prompts by entity
+so vLLM's prefix cache can reuse the KV cache:
+
+```
+# BAD: sorted by item (default from data)
+# Each prompt gets full prefill — cache is cold
+person_1/item_A, person_2/item_A, person_3/item_A, ...
+
+# GOOD: sorted by entity
+# Only first prompt per person pays full prefill cost
+person_1/item_A, person_1/item_B, ..., person_1/item_N,
+person_2/item_A, person_2/item_B, ...
+```
+
+**Design prompts for prefix compatibility.** The shared context (entity profile)
+must come before the variable part (question) in the prompt. The prefix is
+everything up to the first token that differs between prompts:
+
+```
+[SHARED PREFIX — cached after first prompt]
+<system>You are simulating...</system>
+<user>Here is the profile:
+feature_1: 3.0
+feature_2: 1.0
+...
+feature_251: 5.0
+
+Question: In study '
+[VARIABLE SUFFIX — unique per prompt]
+study_name', for item 'variable_name'...
+```
+
+With 589 people × 72 items, this turns 42K full prefills (3K tokens each) into
+589 full prefills + 41K cache hits (~20 tokens each). In practice: **~3 hours
+→ ~20 minutes**.
+
+Other vLLM tips:
+- Use `tensor_parallel_size=N` to shard across multiple GPUs
+- Set `max_model_len` to just above your longest prompt (saves KV cache memory)
+- `gpu_memory_utilization=0.85` is a safe default; lower if other processes
+  share the GPU
+
 ---
 
-## 10. Shared Core, Isolated Pipelines
+## 11. Shared Core, Isolated Pipelines
 
 Separate universal infrastructure from method-specific logic:
 
@@ -184,7 +234,7 @@ src/
 Adding a new method means creating a directory and registering it in the
 dispatcher. Zero changes to existing pipelines, data loading, or evaluation.
 
-## 11. Universal Type Contracts
+## 12. Universal Type Contracts
 
 All pipelines consume `Sample` and produce `Prediction`. No exceptions.
 
@@ -199,7 +249,7 @@ All pipelines consume `Sample` and produce `Prediction`. No exceptions.
 This makes methods directly comparable. Swap pipeline A for pipeline B and the rest
 of the system doesn't change.
 
-## 12. Config as Dataclass, Not Dict
+## 13. Config as Dataclass, Not Dict
 
 If you only save `"config": "configs/experiment.yaml"`, the config file may change
 before you look at the results. And if configs are plain dicts, typos become silent
@@ -244,7 +294,7 @@ learning_rate: 5e-4
 Presets let you mix-and-match parameter groups without a combinatorial explosion of
 config files.
 
-## 13. Multi-Stage Pipelines with Stage Caching
+## 14. Multi-Stage Pipelines with Stage Caching
 
 For complex pipelines, define stages as independent units:
 
@@ -265,7 +315,7 @@ check cache → run if missing → pass outputs forward.
 A 3-stage pipeline (extract → score → predict) where stage 1 takes 2 hours should not
 re-run stage 1 when you're iterating on stage 3. Stage caching makes this automatic.
 
-## 14. Experiment Lifecycle and Deduplication
+## 15. Experiment Lifecycle and Deduplication
 
 Every pipeline run follows the same lifecycle via `ExperimentTracker`:
 
@@ -296,7 +346,7 @@ outputs/{method}/
         ├── config.yaml          ← Frozen config snapshot (from to_dict)
         ├── metadata.json        ← Git commit, timestamp, host
         ├── metrics.json         ← Final evaluation results
-        ├── stages/              ← Per-stage intermediate outputs (section 13)
+        ├── stages/              ← Per-stage intermediate outputs (section 14)
         ├── llm_logs/            ← LLM I/O for debugging (section 5)
         ├── groups/              ← Per-group drill-down (section 1)
         └── diagnostics/         ← Parse failures, outliers (section 6)
