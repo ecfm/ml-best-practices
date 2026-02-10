@@ -11,6 +11,7 @@ Use `/sync-learnings` to commit and push any new learnings at end of session.
 - Preserve evidence: save inputs, outputs, and resolved configuration at each pipeline stage. Never overwrite previous results — use unique output directories
 - Sort worst-first in all summary tables
 - After runs: verify outputs exist and have expected count, then check diagnostics and parse failures before looking at metrics. Investigate suspiciously good results — unexpected jumps likely indicate data leaks or bugs, not breakthroughs
+- For study-specific decisions: when the choice is obvious from context or data structure (e.g., grouped split for multi-row-per-unit data, standard normalization), make the choice and state it clearly. When the choice is genuinely ambiguous or could invalidate results (e.g., evaluation metric, binarization threshold, outlier exclusion, comparison baselines), always ask the user before proceeding. When deviating from standard practice, always ask. See experiment-practices.md section 8 for details.
 
 # Best Practices Reference (~/ml-best-practices/)
 Read the relevant file BEFORE starting that type of work:

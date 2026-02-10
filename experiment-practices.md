@@ -52,7 +52,7 @@ run_dir/
 - `diagnostics/` separates "what went wrong" from "what are the results"
 
 When comparing multiple methods, this inner structure nests inside an experiment
-tracking layout (see section 10).
+tracking layout (see section 11).
 
 **Avoid:** Flat directories with thousands of files — use group/entity subdirectories.
 
@@ -151,7 +151,40 @@ happened — every failure should be logged with the raw output that caused it.
   split. Often they didn't, and you need to note you're evaluating their
   predictions on your test subset.
 
-## 8. Smoke Test Before Full Run
+## 8. Study-Specific Decisions: When to Ask vs Decide
+
+Some decisions look like implementation details but can invalidate a study if
+wrong. The rule: **make obvious choices and state them; ask when genuinely
+ambiguous.**
+
+### Usually determinable from context — decide and state clearly
+
+| Decision | When it's obvious |
+|----------|-------------------|
+| **Data split strategy** | Time series → temporal; multi-row-per-unit → grouped; i.i.d. → random; imbalanced → stratified |
+| **Split unit** | Data has `patient_id`/`user_id` with multiple rows → split by that ID |
+| **Train/test ratio** | 80/20 or 80/10/10 is a reasonable default for most datasets |
+| **Categorical encoding** | Nominal → one-hot; ordinal → ordinal encoding. Clear from variable type |
+| **Missing data** | Trivial amount in non-critical features → drop rows |
+| **Normalization** | Standardize numerical features. Rarely controversial |
+
+### Must ask the user — genuinely ambiguous or high-stakes
+
+| Decision | Why you can't guess |
+|----------|---------------------|
+| **Evaluation metric** | Accuracy vs F1 vs AUC vs MAE tell different stories; must match the research question |
+| **Binarization/discretization thresholds** | Median split? Top/bottom quartile? No universal default |
+| **Outlier exclusion criteria** | What counts as an outlier and whether to exclude is domain-specific |
+| **Comparison baselines** | Which methods to compare against is the research question itself |
+| **Feature selection** | When many options exist, which to include changes the study |
+
+### Always ask when:
+
+- Deviating from standard practice for a study-specific reason
+- The best practice in this document conflicts with what the study requires
+- Multiple reasonable approaches exist and the choice materially affects results
+
+## 9. Smoke Test Before Full Run
 
 Before launching a multi-hour training or a large-scale inference run, smoke test
 on a small representative sample. The sample should:
@@ -171,12 +204,12 @@ What to verify:
 4. Output files are written with expected schema and count
 5. No obvious issues (all predictions identical, all NaN, etc.)
 
-After the smoke test completes, run the full post-run review checklist (section 9)
+After the smoke test completes, run the full post-run review checklist (section 10)
 on the smoke output. This catches model loading issues, auth failures, prompt
 formatting bugs, parsing errors, broken eval callbacks, and checkpoint failures
 before you waste hours on a broken pipeline.
 
-## 9. Post-Run Review Checklist
+## 10. Post-Run Review Checklist
 
 After every experiment run, systematically check in this order (see sections
 1, 5, 6 for where to find each piece):
@@ -201,7 +234,7 @@ After every experiment run, systematically check in this order (see sections
 
 ---
 
-## 10. Experiment Lifecycle and Deduplication
+## 11. Experiment Lifecycle and Deduplication
 
 Every pipeline run follows the same lifecycle via `ExperimentTracker`:
 
@@ -293,7 +326,7 @@ Check runs.yaml for prior run status before launching jobs.
 
 ---
 
-## 11. Real-Time Progress Monitoring
+## 12. Real-Time Progress Monitoring
 
 Long-running jobs (training, batch inference) MUST produce output within the first
 few minutes or you risk wasting hours on a silently broken run.
@@ -362,7 +395,7 @@ Before launching multi-hour jobs, validate:
 - [ ] Data pipeline produces correct shapes (spot-check first batch)
 - [ ] Output directory is writable and has enough disk space
 
-## 12. Common ML Silent Failures
+## 13. Common ML Silent Failures
 
 Silent failures are the most expensive bugs in ML. A model that trains for 8 hours
 on corrupted data, or inference that runs for 2 hours producing garbage, wastes
@@ -378,7 +411,7 @@ both compute and human attention. Watch for these:
 - Data collator silently truncating sequences longer than model's max position
   embeddings — no error, just wrong results.
 
-## 13. Complete Each Run Fully Before Starting the Next
+## 14. Complete Each Run Fully Before Starting the Next
 
 The fastest way to find bugs is to produce a result. Don't batch all training
 runs, then all inference runs, then all evaluations. Instead, for each
@@ -443,7 +476,7 @@ for config in config_small config_medium config_large; do
 done
 ```
 
-## 14. Early Stopping for Experiments
+## 15. Early Stopping for Experiments
 
 Not every experiment needs to run to completion. Know when to stop early — both
 within a training run and across an experiment series.
@@ -467,7 +500,7 @@ Use early stopping when training loss has clearly plateaued or diverged:
 
 ### Across an Experiment Series
 
-Use the "complete each run fully" principle (section 13) to enable early
+Use the "complete each run fully" principle (section 14) to enable early
 stopping of the series:
 
 - If the smallest config produces terrible results (e.g., metric below
@@ -504,7 +537,7 @@ so the final saved model is the best checkpoint, not the last one.
 
 ---
 
-## 15. vLLM and Prefix Caching for Batch Inference
+## 16. vLLM and Prefix Caching for Batch Inference
 
 Use [vLLM](https://github.com/vllm-project/vllm) instead of HuggingFace
 `model.generate()` for batch inference. vLLM provides continuous batching,

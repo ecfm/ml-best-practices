@@ -29,4 +29,4 @@ so every session inherits the shared rules and commands.
   `claude/CLAUDE.md`
 - Use `/sync-learnings` at end of session to commit and push new learnings
 - `runs.yaml` in each project repo tracks run stability (see experiment-practices.md
-  section 10)
+  section 11)
