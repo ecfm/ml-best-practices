@@ -41,13 +41,13 @@ only through typed inputs/outputs, never global state.
 
 All pipelines consume `Sample` and produce `Prediction`. No exceptions.
 
-- **Sample**: stores raw labels (floats), converts to classification/binary/continuous
-  on demand via `get_label(trait, mode)`. One storage format, many views.
-- **Prediction**: carries `sample_id`, `trait`, `value`, plus a `metadata` dict for
-  method-specific info.
-- **Evaluation**: a single `evaluate(predictions, ground_truth, trait)` handles any
-  prediction type — bins regression outputs into classes, maps categorical outputs to
-  ordinals for correlation — so every method gets the same metrics automatically.
+- **Sample**: stores raw features and labels, converts to task-specific format on
+  demand (e.g., classification bins, regression targets). One storage format, many views.
+- **Prediction**: carries `sample_id`, `target_name`, `value`, plus a `metadata` dict
+  for method-specific info.
+- **Evaluation**: a single `evaluate(predictions, ground_truth, target)` that handles
+  format conversion (e.g., binning continuous outputs for classification metrics) — so
+  every method gets the same metrics computed the same way.
 
 This makes methods directly comparable. Swap pipeline A for pipeline B and the rest
 of the system doesn't change.
@@ -67,7 +67,7 @@ required methods:
 class PipelineConfig:
     learning_rate: float = 1e-3
     batch_size: int = 4
-    traits: list[str] = field(default_factory=lambda: ["extraversion"])
+    target_columns: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:       # Serializes resolved values for hashing and storage
         ...
@@ -90,10 +90,10 @@ Support config inheritance (`_base: base.yaml`) and presets
 # configs/method_a/experiment_1.yaml
 _base: base.yaml
 _presets:
-  - fast_test        # small sample sizes for iteration
-  - binary           # median-split labels
+  - fast_test        # small data for iteration
+  - classification   # binned labels
 
-traits: [extraversion, agreeableness]
+target_columns: [label_a, label_b]
 learning_rate: 5e-4
 ```
 

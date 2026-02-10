@@ -2,7 +2,6 @@ Sync shared learnings across servers. Do the following steps:
 
 1. **Check for local changes** in these locations:
    - `~/ml-best-practices/` (shared best practices)
-   - `~/.claude/CLAUDE.md` (global Claude instructions)
    - `~/.claude/projects/*/memory/` (project-specific memory files)
 
 2. **Commit local changes** in `~/ml-best-practices/`:

@@ -16,24 +16,26 @@ Design outputs so a human can start from a 1-line summary and drill into any
 specific data point. Every level should answer "is this good?" and "where
 should I look next?"
 
+Example structure (adapt the hierarchy and naming for your domain):
+
 ```
 run_dir/
 ├── README.txt              ← Purpose, scope, data, model, metrics, navigation
 ├── config.json             ← Exact reproduction parameters (resolved, not file ref)
 ├── metrics.json            ← Top-level numbers
 ├── predictions.parquet     ← All predictions (programmatic access)
-├── raw_outputs.parquet     ← All raw LLM outputs + input prompts
+├── raw_outputs.parquet     ← All raw model outputs + input prompts
 │
-├── groups/                 ← Per-group breakdown (rename for your domain)
-│   ├── _index.csv          ← ENTRY POINT: one row per group, sorted by metric
-│   └── {group}/
-│       ├── group_metrics.json
+├── groups/                 ← Per-group breakdown (adapt naming for your domain)
+│   ├── _index.csv          ← ENTRY POINT: one row per group, sorted worst-first
+│   └── {group_name}/
+│       ├── metrics.json
 │       ├── predictions.csv      ← Human-readable (not parquet)
-│       ├── per_entity.csv       ← Per-entity summary (sorted worst-first)
-│       └── entities/
-│           └── {entity_id}/
-│               ├── summary.txt  ← All predictions at a glance
-│               └── {item}.txt   ← Individual LLM input/output
+│       ├── per_sample.csv       ← Per-sample summary (sorted worst-first)
+│       └── samples/
+│           └── {sample_id}/
+│               ├── summary.txt  ← All predictions for this sample at a glance
+│               └── {input_id}.txt  ← Individual model input/output
 │
 └── diagnostics/
     ├── parse_failures.csv       ← Raw outputs that failed parsing
@@ -44,9 +46,9 @@ run_dir/
 
 ### Why this structure works
 - `_index.csv` sorted worst-first tells you immediately which groups need attention
-- `per_entity.csv` sorted worst-first within each group pinpoints problem cases
-- `summary.txt` shows all predictions for one entity at a glance — no cross-referencing
-- Individual `.txt` files give the full LLM prompt + response for any single prediction
+- `per_sample.csv` sorted worst-first within each group pinpoints problem cases
+- `summary.txt` shows all predictions for one sample at a glance — no cross-referencing
+- Individual `.txt` files give the full model input + output for any single prediction
 - `diagnostics/` separates "what went wrong" from "what are the results"
 
 When comparing multiple methods, this inner structure nests inside an experiment
@@ -60,15 +62,15 @@ Every run must have a README.txt that a stranger (or yourself in 3 months) can
 read and fully understand:
 
 - **Purpose**: What hypothesis is this testing? Why does it matter?
-- **Scope**: What dataset, how many subjects, what split, what subset
-- **Model**: Exact model ID, mode (zero-shot/ICL/SFT), adapter path if any
+- **Scope**: What dataset, how many samples, what split, what subset
+- **Model**: Exact model ID, training method, key hyperparameters
 - **Results**: Key numbers at a glance
 - **Metrics definition**: What does each metric actually mean?
 - **Navigation**: How to find what you're looking for in the file tree
 - **Comparison context**: How does this relate to other methods' results?
 
-A raw accuracy number is meaningless without context. README should state what
-metric is being used, what the baselines are, and whether higher/lower is better.
+A raw number is meaningless without context. README should state what metric
+is being used, what the baselines are, and whether higher/lower is better.
 
 **Avoid:** Saving metrics without documenting what was tested — undocumented runs
 become useless within weeks.
@@ -84,8 +86,8 @@ become useless within weeks.
 ## 4. Sort Worst-First
 
 Every summary table should be sorted so the worst results are at the top:
-- `_index.csv`: groups sorted by ascending accuracy
-- `per_entity.csv`: entities sorted by ascending accuracy within each group
+- `_index.csv`: groups sorted worst-first by primary metric
+- Per-sample tables: sorted worst-first within each group
 
 You always want to investigate failures first. If everything looks good at the
 top, you can stop reading.
@@ -104,20 +106,19 @@ Every LLM call should produce a plain-text file with clear sections:
 <raw LLM generation>
 
 === METADATA ===
-entity_id: 42
-group: task_A
-item: question_1
-actual: 5.0
+sample_id: 42
+group: category_A
+ground_truth: 5.0
 predicted: 3.0
-abs_error: 2.0
-value_range: [1.0, 6.0]
+error: 2.0
+valid_range: [1.0, 6.0]
 ```
 
 Key lessons:
 - **Include the templated prompt**, not just the messages dict. The actual tokens
   sent to the model matter (special tokens, chat format, system prompts).
 - **Include ground truth in metadata** so you can evaluate each file standalone.
-- **Include value range** so you can see if the prediction is plausible.
+- **Include valid range** so you can see if the prediction is plausible.
 - Store `input_text` in the raw_outputs parquet too — if you forget to include it
   initially, you'll have to backfill it from log files later.
 
@@ -126,7 +127,7 @@ Also avoid saving the output without the input prompt that produced it.
 
 ## 6. Diagnostics as First-Class Outputs
 
-After every run, the first thing to check is not the accuracy number — it's:
+After every run, the first thing to check is not the headline metric — it's:
 
 1. **Parse failures**: How many outputs couldn't be parsed? What did they say?
    A small fraction is fine. A large fraction means your prompt or parsing is broken.
@@ -141,8 +142,8 @@ happened — every failure should be logged with the raw output that caused it.
 
 ## 7. Train/Test Split Hygiene
 
-- Split at the **entity level** (person, not observation). All observations from
-  one entity must be in the same split.
+- Split at the **unit of independence** (e.g., patient, document, user — not
+  individual observations). All data from one unit must be in the same split.
 - Save the split as a standalone JSON with explicit train/test ID lists.
 - Every component (data prep, training, inference, evaluation, comparison) must
   load the same split file. Grep for "split" across the codebase to verify.
@@ -185,10 +186,10 @@ After every experiment run, systematically check in this order (see sections
 - [ ] Output count matches expected input count (no silent data loss)
 - [ ] Resolved config was logged — verify it matches what you intended
 
-**Then — check for problems before looking at accuracy:**
+**Then — check for problems before looking at metrics:**
 - [ ] Parse failure rate (<1% acceptable, >5% investigate prompt/parsing)
 - [ ] Prediction distribution vs actual distribution (mean, std)
-- [ ] Per-group accuracy spread (which groups are catastrophic?)
+- [ ] Per-group metric spread (which groups are catastrophic?)
 - [ ] Outlier count and nature (systematic or random?)
 - [ ] Spot-check individual LLM input/output files for sanity
 
@@ -260,7 +261,7 @@ it's safe to trust*.
     python: "3.11"
     vllm: "0.4.1"
     torch: "2.2.0"
-  notes: "Baseline run, validated on 500 subjects"
+  notes: "Baseline run, validated on full test set"
   metrics: {mae: 0.82, correlation: 0.45}
 
 - id: "def456_2a1b"
@@ -460,7 +461,7 @@ Use early stopping when training loss has clearly plateaued or diverged:
 - **Watch for overfitting**: If train loss drops but eval loss rises, stop
   immediately. More training is actively harmful.
 - **Track prediction quality, not just loss**: Eval loss can decrease while
-  actual prediction accuracy stagnates. Add eval callbacks that generate
+  actual prediction quality stagnates. Add eval callbacks that generate
   sample predictions and compute task-specific metrics (MAE, correlation)
   during training.
 
@@ -469,7 +470,7 @@ Use early stopping when training loss has clearly plateaued or diverged:
 Use the "complete each run fully" principle (section 13) to enable early
 stopping of the series:
 
-- If the smallest config produces terrible results (e.g., accuracy below
+- If the smallest config produces terrible results (e.g., metric below
   random baseline), investigate before scaling up — the problem may be in
   the pipeline, not the data volume.
 - If the smallest config already matches the target baseline, larger configs
@@ -483,9 +484,9 @@ stopping of the series:
 |--------|--------|
 | Eval loss flat for 3+ evals | Stop training (patience exceeded) |
 | Eval loss increasing | Stop immediately (overfitting) |
-| Config N accuracy < random baseline | Investigate pipeline before config N+1 |
+| Config N below random baseline | Investigate pipeline before config N+1 |
 | Config N ≈ Config N-1 (within noise) | Diminishing returns — consider stopping series |
-| Config N worse than Config N-1 | Data quality issue — stop and investigate |
+| Config N worse than Config N-1 | Stop and investigate before continuing |
 
 ### Implementation
 
@@ -509,43 +510,16 @@ Use [vLLM](https://github.com/vllm-project/vllm) instead of HuggingFace
 `model.generate()` for batch inference. vLLM provides continuous batching,
 PagedAttention, and automatic prefix caching — often 10-50x faster.
 
-**Prompt ordering matters for prefix caching.** When you have N entities × M
-items (e.g. 500 users × 100 questions), all prompts for the same entity share
-a long prefix (system prompt + entity profile). Sort prompts by entity so
-vLLM's prefix cache can reuse the KV cache:
+**Prompt ordering matters for prefix caching.** vLLM caches the KV cache for
+shared prompt prefixes. If multiple prompts share a long common prefix, group
+them together so the prefix is computed once and reused. The optimal ordering
+depends on your prompt structure — identify which part is longest and shared
+(system prompt, context, instructions) vs which part varies per call, and sort
+so prompts with the same prefix are adjacent.
 
-```
-# BAD: sorted by item (default from data)
-# Each prompt gets full prefill — cache is cold
-person_1/item_A, person_2/item_A, person_3/item_A, ...
-
-# GOOD: sorted by entity
-# Only first prompt per person pays full prefill cost
-person_1/item_A, person_1/item_B, ..., person_1/item_N,
-person_2/item_A, person_2/item_B, ...
-```
-
-**Design prompts for prefix compatibility.** The shared context (entity profile)
-must come before the variable part (question) in the prompt. The prefix is
-everything up to the first token that differs between prompts:
-
-```
-[SHARED PREFIX — cached after first prompt]
-<system>You are simulating...</system>
-<user>Here is the profile:
-feature_1: 3.0
-feature_2: 1.0
-...
-feature_251: 5.0
-
-Question: In study '
-[VARIABLE SUFFIX — unique per prompt]
-study_name', for item 'variable_name'...
-```
-
-With 500 users × 100 items, this turns 50K full prefills (3K tokens each) into
-500 full prefills + 49.5K cache hits (~20 tokens each). In practice this can
-give **10-50x speedup** depending on prefix length and item count.
+**Design prompts for prefix compatibility.** The shared content must come before
+the variable content in the prompt. The prefix is everything up to the first
+token that differs between prompts — anything after that point is recomputed.
 
 Other vLLM tips:
 - Use `tensor_parallel_size=N` to shard across multiple GPUs

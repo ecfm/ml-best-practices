@@ -10,7 +10,7 @@ Use `/sync-learnings` to commit and push any new learnings at end of session.
 - Complete each run fully (train → infer → validate) before starting the next
 - Preserve evidence: save inputs, outputs, and resolved configuration at each pipeline stage. Never overwrite previous results — use unique output directories
 - Sort worst-first in all summary tables
-- After runs: verify outputs exist and have expected count, then check diagnostics and parse failures before accuracy numbers. Investigate suspiciously good results — unexpected jumps likely indicate data leaks or bugs, not breakthroughs
+- After runs: verify outputs exist and have expected count, then check diagnostics and parse failures before looking at metrics. Investigate suspiciously good results — unexpected jumps likely indicate data leaks or bugs, not breakthroughs
 
 # Best Practices Reference (~/ml-best-practices/)
 Read the relevant file BEFORE starting that type of work:
