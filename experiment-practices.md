@@ -152,27 +152,50 @@ happened — every failure should be logged with the raw output that caused it.
 
 ## 8. Smoke Test Before Full Run
 
-Before launching a multi-hour training or a large-scale inference run:
+Before launching a multi-hour training or a large-scale inference run, smoke test
+on a small representative sample. The sample should:
 
-1. Run on 4 examples to verify the pipeline produces valid output
-2. Check that the model loads, generates, and parses correctly
-3. Verify the output schema matches expectations
-4. Check for obvious issues (all predictions identical, all NaN, etc.)
+- **Cover key variations**: different groups, edge cases, boundary values — not
+  just the first N rows, which may all be from one group
+- **Trigger the full lifecycle**: the sample and config must be small enough that
+  evaluation, metrics logging, checkpointing, and output saving all fire within
+  minutes. If your eval runs every 500 steps, use a config where 500 steps takes
+  2 minutes, not 2 hours. Every behavior should be exercised, not just "training
+  starts."
 
-This catches model loading issues, auth failures, prompt formatting bugs, and
-parsing errors before you waste hours on a broken pipeline.
+What to verify:
+1. Model loads, generates, and parses correctly
+2. Evaluation callback runs and produces valid metrics
+3. Checkpoints save and can be loaded
+4. Output files are written with expected schema and count
+5. No obvious issues (all predictions identical, all NaN, etc.)
+
+After the smoke test completes, run the full post-run review checklist (section 9)
+on the smoke output. This catches model loading issues, auth failures, prompt
+formatting bugs, parsing errors, broken eval callbacks, and checkpoint failures
+before you waste hours on a broken pipeline.
 
 ## 9. Post-Run Review Checklist
 
-After every experiment run, systematically check (see sections 1, 5, 6 for
-where to find each piece):
+After every experiment run, systematically check in this order (see sections
+1, 5, 6 for where to find each piece):
 
+**First — verify the job actually produced output:**
+- [ ] Output files exist and are non-empty
+- [ ] Output count matches expected input count (no silent data loss)
+- [ ] Resolved config was logged — verify it matches what you intended
+
+**Then — check for problems before looking at accuracy:**
 - [ ] Parse failure rate (<1% acceptable, >5% investigate prompt/parsing)
 - [ ] Prediction distribution vs actual distribution (mean, std)
 - [ ] Per-group accuracy spread (which groups are catastrophic?)
 - [ ] Outlier count and nature (systematic or random?)
-- [ ] Spot-check 3-5 individual LLM input/output files for sanity
+- [ ] Spot-check individual LLM input/output files for sanity
+
+**Finally — evaluate and compare:**
 - [ ] Compare against baselines — does the ranking make sense?
+- [ ] If results are significantly better than expected, investigate for data
+      leaks or bugs before trusting them
 - [ ] Update experiment notes with findings
 
 ---
