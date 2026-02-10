@@ -162,9 +162,9 @@ Use [vLLM](https://github.com/vllm-project/vllm) instead of HuggingFace
 PagedAttention, and automatic prefix caching — often 10-50x faster.
 
 **Prompt ordering matters for prefix caching.** When you have N entities × M
-items (e.g. 589 people × 72 survey questions), all prompts for the same entity
-share a long prefix (system prompt + entity profile). Sort prompts by entity
-so vLLM's prefix cache can reuse the KV cache:
+items (e.g. 500 users × 100 questions), all prompts for the same entity share
+a long prefix (system prompt + entity profile). Sort prompts by entity so
+vLLM's prefix cache can reuse the KV cache:
 
 ```
 # BAD: sorted by item (default from data)
@@ -195,9 +195,9 @@ Question: In study '
 study_name', for item 'variable_name'...
 ```
 
-With 589 people × 72 items, this turns 42K full prefills (3K tokens each) into
-589 full prefills + 41K cache hits (~20 tokens each). In practice: **~3 hours
-→ ~20 minutes**.
+With 500 users × 100 items, this turns 50K full prefills (3K tokens each) into
+500 full prefills + 49.5K cache hits (~20 tokens each). In practice this can
+give **10-50x speedup** depending on prefix length and item count.
 
 Other vLLM tips:
 - Use `tensor_parallel_size=N` to shard across multiple GPUs
@@ -463,6 +463,132 @@ both compute and human attention.
   the effective batch size at training start.
 - Data collator silently truncating sequences longer than model's max position
   embeddings — no error, just wrong results.
+
+## 18. Complete Each Run Fully Before Starting the Next
+
+The fastest way to find bugs is to produce a result. Don't batch all training
+runs, then all inference runs, then all evaluations. Instead, for each
+configuration: **train → infer → validate**, then move on.
+
+### Why
+
+1. **Earlier bug detection.** A broken prompt, misconfigured model, or data
+   pipeline bug shows up in the first complete run's output — not after N
+   training jobs have all consumed GPU-hours.
+
+2. **Results inform next steps.** If the smallest config already matches the
+   baseline, larger configs may be unnecessary. If it catastrophically fails,
+   you know before wasting time on bigger runs.
+
+3. **Partial work has zero value.** A trained model with no inference results
+   is useless for the paper. A completed training + inference + validated result
+   is a full data point you can report, even if everything else fails.
+
+### Where This Applies
+
+- **Hyperparameter sweeps**: Run the fastest config fully (smallest data, 1
+  epoch) before scaling up. Validate output quality, then proceed.
+- **Data budget experiments** (e.g. 10% → 25% → 50% → 100% of training data;
+  actual splits depend on the study and should be confirmed with the user):
+  Each budget is a self-contained experiment. Finish smallest first.
+- **Multi-condition experiments**: Complete one condition end-to-end before
+  starting others.
+- **Pipeline changes**: After modifying any stage, run one example end-to-end
+  before scaling up.
+- **Multi-model comparisons**: Finish one model's full pipeline before starting
+  the next.
+
+### Anti-Pattern: Batch-by-Stage
+
+```
+# BAD: batch by stage
+Train config_A, config_B, config_C     # 8 hours
+Then infer config_A, config_B, config_C  # 2 hours
+Then validate all                          # 30 min
+→ First result at hour 8.5, bugs found at hour 10.5
+
+# GOOD: batch by config
+Train config_A → Infer → Validate      # 1.5 hours → first result + validated
+Train config_B → Infer → Validate      # 2 hours
+...
+→ First result at hour 1.5, bugs found at hour 1.5
+```
+
+### Queue Script Pattern
+
+```bash
+for config in config_small config_medium config_large; do
+    echo "=== ${config}: Training ==="
+    train $config
+
+    echo "=== ${config}: Inference ==="
+    infer $config
+
+    echo "=== ${config}: Validation ==="
+    validate $config
+done
+```
+
+## 19. Early Stopping for Experiments
+
+Not every experiment needs to run to completion. Know when to stop early — both
+within a training run and across an experiment series.
+
+### Within a Training Run
+
+Use early stopping when training loss has clearly plateaued or diverged:
+
+- **Patience-based**: Stop if eval loss doesn't improve for N consecutive
+  evaluations. HuggingFace Trainer supports this with
+  `EarlyStoppingCallback(early_stopping_patience=3)`.
+- **Save checkpoints frequently enough** that early stopping doesn't lose work.
+  `save_strategy="steps"` with `save_steps=200` is better than
+  `save_strategy="epoch"` for long epochs.
+- **Watch for overfitting**: If train loss drops but eval loss rises, stop
+  immediately. More training is actively harmful.
+- **Track prediction quality, not just loss**: Eval loss can decrease while
+  actual prediction accuracy stagnates. Add eval callbacks that generate
+  sample predictions and compute task-specific metrics (MAE, correlation)
+  during training.
+
+### Across an Experiment Series
+
+Use the "complete each run fully" principle (section 18) to enable early
+stopping of the series:
+
+- If the smallest config produces terrible results (e.g., accuracy below
+  random baseline), investigate before scaling up — the problem may be in
+  the pipeline, not the data volume.
+- If the smallest config already matches the target baseline, larger configs
+  may give diminishing returns — run them for completeness but deprioritize.
+- If results degrade with more data or compute, something is wrong. Stop
+  and investigate before proceeding.
+
+### What to Monitor for Early Stopping Decisions
+
+| Signal | Action |
+|--------|--------|
+| Eval loss flat for 3+ evals | Stop training (patience exceeded) |
+| Eval loss increasing | Stop immediately (overfitting) |
+| Config N accuracy < random baseline | Investigate pipeline before config N+1 |
+| Config N ≈ Config N-1 (within noise) | Diminishing returns — consider stopping series |
+| Config N worse than Config N-1 | Data quality issue — stop and investigate |
+
+### Implementation
+
+```python
+from transformers import EarlyStoppingCallback
+
+trainer = SFTTrainer(
+    ...,
+    callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
+)
+```
+
+Ensure `load_best_model_at_end=True` and `metric_for_best_model="eval_loss"`
+so the final saved model is the best checkpoint, not the last one.
+
+---
 
 ## Anti-Patterns
 
