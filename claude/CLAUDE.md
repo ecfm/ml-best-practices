@@ -1,12 +1,24 @@
 # Shared Learnings
 At the start of each session, pull shared learnings: `cd ~/ml-best-practices && git pull --quiet`
-For detailed ML best practices, read ~/ml-best-practices/README.md before starting training or inference work.
 Use `/sync-learnings` to commit and push any new learnings at end of session.
 
 # General Rules
-always use uv to manage dependency and run python
-don't use try catch to silent errors, always let it fail-fast. only apply try catch when there is no alternative and warn the user
-don't use .get with default values. if key missing just let it throw exception. warn user if this has to be used
-for ML task, save detailed logs, inputs, intermediate results, output, metrics, and model specs with easy to find structure for later debugging
-after update or fix, always run a small but complete test by yourself and debug it until it succeeds, prior to running a long job that is newly implemented or updated
-after running experiments, carefully review logs, inputs, intermediate results, output, metrics, and model specs to check whether all steps follow expectation, identify potential issues and improvement directions.
+- Always use uv to manage dependencies and run Python
+- Fail-fast: no try-catch to silence errors, no .get with defaults on required keys. Only use try-catch when there is no alternative and warn the user
+- Log to files (not just stdout) so long-running jobs can be monitored via `tail -f`. Avoid verbose stdout in Claude Code — redirect to log files and check periodically
+- Never let a job run more than 5 minutes without checking logs — especially after code changes, new experiments, or in a new environment. Only skip monitoring for runs proven stable (check runs.yaml)
+- Smoke test (4 examples) before any long run
+- After changes, run a small but complete test and debug until it succeeds before running long jobs
+- Complete each run fully (train → infer → validate) before starting the next
+- Sort worst-first in all summary tables
+- Always save LLM inputs (templated prompt) alongside outputs
+- After runs: check diagnostics and parse failures BEFORE looking at accuracy numbers
+- Review logs, inputs, intermediate results, outputs, metrics to verify all steps follow expectations
+
+# Best Practices Reference (~/ml-best-practices/)
+Read the relevant file BEFORE starting that type of work:
+
+| When you are...                    | Read                         |
+|------------------------------------|------------------------------|
+| Running or planning ML experiments | experiment-practices.md      |
+| Designing a new pipeline or method | pipeline-architecture.md     |
