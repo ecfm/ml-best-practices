@@ -12,6 +12,7 @@ echo "Installing from: ${REPO_DIR}"
 
 # Create ~/.claude directories
 mkdir -p ~/.claude/commands
+mkdir -p ~/.claude/rules
 
 # Symlink CLAUDE.md (global instructions)
 if [ -L ~/.claude/CLAUDE.md ]; then
@@ -26,6 +27,19 @@ else
     echo "Symlinked ~/.claude/CLAUDE.md"
 fi
 
+# Symlink settings.json (hooks, theme, statusLine)
+if [ -L ~/.claude/settings.json ]; then
+    echo "~/.claude/settings.json already symlinked"
+elif [ -f ~/.claude/settings.json ]; then
+    echo "~/.claude/settings.json exists (not a symlink). Backing up to ~/.claude/settings.json.bak"
+    mv ~/.claude/settings.json ~/.claude/settings.json.bak
+    ln -sf "${REPO_DIR}/claude/settings.json" ~/.claude/settings.json
+    echo "Symlinked ~/.claude/settings.json"
+else
+    ln -sf "${REPO_DIR}/claude/settings.json" ~/.claude/settings.json
+    echo "Symlinked ~/.claude/settings.json"
+fi
+
 # Symlink all commands
 for cmd in "${REPO_DIR}"/claude/commands/*.md; do
     [ -f "$cmd" ] || continue
@@ -34,7 +48,17 @@ for cmd in "${REPO_DIR}"/claude/commands/*.md; do
     echo "Symlinked ~/.claude/commands/${name}"
 done
 
+# Symlink all rules
+for rule in "${REPO_DIR}"/claude/rules/*.md; do
+    [ -f "$rule" ] || continue
+    name=$(basename "$rule")
+    ln -sf "$rule" ~/.claude/rules/"$name"
+    echo "Symlinked ~/.claude/rules/${name}"
+done
+
 echo ""
 echo "Done. Verify with:"
 echo "  ls -la ~/.claude/CLAUDE.md"
+echo "  ls -la ~/.claude/settings.json"
 echo "  ls -la ~/.claude/commands/"
+echo "  ls -la ~/.claude/rules/"
