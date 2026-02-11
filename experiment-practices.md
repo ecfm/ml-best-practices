@@ -151,6 +151,24 @@ happened — every failure should be logged with the raw output that caused it.
   split. Often they didn't, and you need to note you're evaluating their
   predictions on your test subset.
 
+### Data Leakage Prevention
+
+Leakage lets the model exploit information unavailable at inference time. Results
+look great in evaluation, then collapse in practice.
+
+- **Preprocessing after split.** Any data-dependent transformation (normalization,
+  scaling, imputation, encoding) must be fit on training data only, then applied
+  to test. Fitting on the full dataset before splitting leaks test statistics into
+  training.
+- **Duplicate detection.** Assert zero ID overlap between train and test sets.
+  Samples can appear under different IDs (re-admissions, re-submissions) — check
+  for near-duplicate content too, not just ID equality.
+- **Temporal ordering.** If data has a time dimension, ensure no training sample
+  has a later timestamp than any test sample. Standard random splits break this.
+- **Target leakage in features.** Any feature derived from or correlated with
+  the target after the prediction point is leakage. If a feature wouldn't be
+  available when making a real prediction, exclude it.
+
 ## 8. Study-Specific Decisions: When to Ask vs Decide
 
 Some decisions look like implementation details but can invalidate a study if
@@ -203,6 +221,12 @@ What to verify:
 3. Checkpoints save and can be loaded
 4. Output files are written with expected schema and count
 5. No obvious issues (all predictions identical, all NaN, etc.)
+6. **(Fine-tuning)** Initial loss is in a reasonable range — typically 1–3 for a
+   pretrained LLM on well-formed data. NaN, 0, or 10+ means something is wrong
+   with data loading, tokenization, or label alignment.
+7. **(Fine-tuning)** Model can overfit a single batch — train on 1–2 batches for
+   many steps and verify loss drops to near zero. If it can't memorize a tiny
+   batch, the training loop is broken (frozen layers, wrong loss, bad data).
 
 After the smoke test completes, run the full post-run review checklist (section 10)
 on the smoke output. This catches model loading issues, auth failures, prompt
@@ -230,6 +254,7 @@ After every experiment run, systematically check in this order (see sections
 - [ ] Compare against baselines — does the ranking make sense?
 - [ ] If results are significantly better than expected, investigate for data
       leaks or bugs before trusting them
+- [ ] Compute bootstrap confidence intervals on key metrics (see section 17)
 - [ ] Update experiment notes with findings
 
 ---
@@ -253,7 +278,9 @@ silently comparing results from different code versions.
 
 A registry file (JSON with file locking) tracks status per identity. Failed
 experiments are recorded (not just missing), so you don't waste time re-running
-known failures.
+known failures. For failed experiments, record **why** it failed and what was
+learned — "prompt v3 failed because model ignores system prompt when context
+exceeds 4k tokens" is far more valuable than `status: failed`.
 
 The experiment output wraps around the per-run structure from section 1:
 
@@ -410,6 +437,11 @@ both compute and human attention. Watch for these:
   the effective batch size at training start.
 - Data collator silently truncating sequences longer than model's max position
   embeddings — no error, just wrong results.
+- Fine-tuning initial loss wildly outside expected range (1–3 for pretrained LLM)
+  but training proceeds anyway — means data loading, tokenization, or labels are
+  wrong. Always check loss at step 1.
+- Tensor shape broadcasting silently producing wrong results — e.g., labels shape
+  `(batch,)` vs `(batch, 1)` computes loss without error but on the wrong thing.
 
 ## 14. Complete Each Run Fully Before Starting the Next
 
@@ -559,3 +591,108 @@ Other vLLM tips:
 - Set `max_model_len` to just above your longest prompt (saves KV cache memory)
 - `gpu_memory_utilization=0.85` is a safe default; lower if other processes
   share the GPU
+
+## 17. Bootstrap Confidence Intervals
+
+A single metric number is meaningless without uncertainty. Re-running experiments
+with different seeds is prohibitively expensive for LLM fine-tuning and large-scale
+inference. Instead, bootstrap the predictions you already have.
+
+```python
+import numpy as np
+
+def bootstrap_ci(y_true, y_pred, metric_fn, n_boot=10000, ci=0.95):
+    """Compute bootstrap CI from a single run's predictions."""
+    scores = []
+    n = len(y_true)
+    for _ in range(n_boot):
+        idx = np.random.randint(0, n, size=n)
+        scores.append(metric_fn(y_true[idx], y_pred[idx]))
+    lo = np.percentile(scores, 100 * (1 - ci) / 2)
+    hi = np.percentile(scores, 100 * (1 + ci) / 2)
+    return np.mean(scores), lo, hi
+```
+
+### When comparing methods
+
+Use **paired bootstrap**: resample the same indices for both methods in each
+iteration, then compute the difference. This exploits the fact that both methods
+predicted on the same samples, giving tighter intervals than comparing
+independent CIs.
+
+```python
+def paired_bootstrap_test(y_true, pred_a, pred_b, metric_fn, n_boot=10000):
+    """How often does method A beat method B on resampled test sets?"""
+    wins = 0
+    n = len(y_true)
+    for _ in range(n_boot):
+        idx = np.random.randint(0, n, size=n)
+        score_a = metric_fn(y_true[idx], pred_a[idx])
+        score_b = metric_fn(y_true[idx], pred_b[idx])
+        if score_a > score_b:  # flip for lower-is-better metrics
+            wins += 1
+    return wins / n_boot  # p(A > B)
+```
+
+Report: `MAE = 0.82 [0.76, 0.89]` — not just `MAE = 0.82`. Add CIs to
+`_index.csv` and `metrics.json`.
+
+**Avoid:** Claiming method A beats method B when their confidence intervals
+overlap substantially. If the paired bootstrap shows A > B only 55% of the time,
+that's noise, not signal.
+
+## 18. Simple Baselines First
+
+Before any real method, establish trivial baselines that take minutes to compute:
+
+| Baseline | How | When it's useful |
+|----------|-----|------------------|
+| **Mean prediction** | Predict training set mean for all samples | Regression floor |
+| **Majority class** | Predict most frequent class for all samples | Classification floor |
+| **Zero-shot (no fine-tuning)** | Run the pretrained model as-is | Shows what fine-tuning actually adds |
+| **Random** | Random predictions from the label distribution | Sanity check — any real method must beat this |
+
+These baselines:
+1. **Set a floor.** If your fine-tuned model barely beats mean prediction, the
+   problem may not be learnable from your data, or your approach is wrong.
+2. **Catch pipeline bugs.** If your method scores *below* a trivial baseline,
+   something is broken — don't tune hyperparameters, debug the pipeline.
+3. **Provide context for readers.** "MAE = 0.82" means nothing. "MAE = 0.82
+   vs 1.45 for mean prediction and 1.12 for zero-shot" tells a story.
+
+Run baselines through the same evaluation pipeline as real methods. This also
+validates that your evaluation code works before investing GPU-hours.
+
+## 19. Prompt Ablations
+
+For LLM-based methods, systematically test what each prompt component contributes.
+This is cheap (re-run inference, no training) and often reveals that complex
+prompts aren't helping — or that a single component is doing all the work.
+
+### What to ablate
+
+| Component | Ablation | What it tests |
+|-----------|----------|---------------|
+| System prompt | Remove entirely | Is the model actually following it? |
+| Few-shot examples | Remove or vary count (0, 1, 3, 5) | Are examples helping or hurting? |
+| Chain-of-thought | Remove "think step by step" / reasoning instructions | Does CoT improve predictions or just waste tokens? |
+| Output format constraints | Remove JSON/structured format instructions | Is formatting causing parse failures without improving accuracy? |
+| Context/background info | Remove domain context | Is the model using the context or ignoring it? |
+
+### How to run ablations
+
+- **One component at a time.** Remove or modify exactly one thing per ablation
+  run. Changing multiple components simultaneously makes results uninterpretable.
+- **Same evaluation pipeline.** Every ablation goes through the same evaluation
+  as the full prompt — same test set, same metrics, same post-run review.
+- **Track in a table.** Add a row to the experiment comparison for each ablation,
+  sorted by metric. The full prompt should be one row, not a separate category.
+
+### What to look for
+
+- A component whose removal *improves* results → it's actively hurting, remove it
+- A component whose removal has no effect → it's dead weight, simplify the prompt
+- A component whose removal degrades results significantly → it's load-bearing, keep it
+
+**Avoid:** Assuming more prompt engineering is always better. Simpler prompts are
+faster (fewer tokens), cheaper, and easier to debug.
