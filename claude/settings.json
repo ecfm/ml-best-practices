@@ -42,6 +42,8 @@
     "swift-lsp@claude-plugins-official": true
   },
   "voiceEnabled": true,
+  "effortLevel": "medium",
   "skipDangerousModePermissionPrompt": true,
-  "theme": "dark"
+  "theme": "dark",
+  "model": "sonnet"
 }

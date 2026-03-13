@@ -11,6 +11,8 @@ Read the relevant file BEFORE starting that type of work:
 | Designing a new pipeline or method | pipeline-architecture.md     |
 
 # Committing
+Before committing a new feature or breaking change, run the `test-and-fix` agent first. Only commit once tests pass.
+
 Use the `commit-push` agent (Agent tool with subagent_type omitted, or the agent file) for all commits and pushes. Proactively invoke it — without waiting for the user to ask — whenever:
 - A feature or task is complete
 - Git diff shows 200+ lines changed
