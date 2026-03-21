@@ -1,8 +1,8 @@
 # Shared Learnings
-At the start of each session, pull shared learnings: `cd ~/ml-best-practices && git pull --quiet`
+At the start of each session, pull shared learnings: `cd ~/Mao/claude-toolkit && git pull --quiet`
 Use `/sync-learnings` to commit and push any new learnings at end of session.
 
-# Best Practices Reference (~/ml-best-practices/)
+# Best Practices Reference (~/Mao/claude-toolkit/)
 Read the relevant file BEFORE starting that type of work:
 
 | When you are...                    | Read                         |
