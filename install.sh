@@ -65,6 +65,24 @@ for agent in "${REPO_DIR}"/claude/agents/*.md; do
     echo "Symlinked ~/.claude/agents/${name}"
 done
 
+# Symlink all skills (entire directories)
+mkdir -p ~/.claude/skills
+for skill_dir in "${REPO_DIR}"/claude/skills/*/; do
+    [ -d "$skill_dir" ] || continue
+    name=$(basename "$skill_dir")
+    if [ -L ~/.claude/skills/"$name" ]; then
+        echo "~/.claude/skills/${name} already symlinked"
+    elif [ -d ~/.claude/skills/"$name" ]; then
+        echo "~/.claude/skills/${name} exists (not a symlink). Backing up."
+        mv ~/.claude/skills/"$name" ~/.claude/skills/"${name}.bak"
+        ln -sf "$skill_dir" ~/.claude/skills/"$name"
+        echo "Symlinked ~/.claude/skills/${name}"
+    else
+        ln -sf "$skill_dir" ~/.claude/skills/"$name"
+        echo "Symlinked ~/.claude/skills/${name}"
+    fi
+done
+
 echo ""
 echo "Done. Verify with:"
 echo "  ls -la ~/.claude/CLAUDE.md"
@@ -72,3 +90,4 @@ echo "  ls -la ~/.claude/settings.json"
 echo "  ls -la ~/.claude/commands/"
 echo "  ls -la ~/.claude/rules/"
 echo "  ls -la ~/.claude/agents/"
+echo "  ls -la ~/.claude/skills/"
