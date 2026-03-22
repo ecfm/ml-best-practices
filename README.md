@@ -23,6 +23,11 @@ and loaded into Claude Code sessions automatically.
   Links claims to specific experiments with full provenance (models, datasets,
   evaluation methods, hyperparams).
 
+- **[templates/lit-review/](templates/lit-review/)** — Multi-agent deep literature
+  review skill. Orchestration loop with iterative follow-up, citation graph traversal
+  (OpenAlex/Semantic Scholar), convergence-based stopping, and tiered reading.
+  Includes search agent protocol, state tracking, and report templates.
+
 ## What Gets Synced
 
 ```
