@@ -14,7 +14,7 @@ Parse `$ARGUMENTS` for:
 - `— output: [path]`: Where to save results (default: `docs/lit_review/{date}-deep-review/`)
 - `— max-rounds: [N]`: Maximum follow-up iterations (default: 10)
 - `— agents: [N]`: Number of initial parallel agents (default: 7)
-- `— model: [sonnet|haiku|opus]`: Model for search agents (default: sonnet)
+- `— model: [sonnet|haiku|opus]`: Model for search agents (default: haiku)
 
 ## File Structure
 
@@ -50,10 +50,13 @@ round = 0
 WHILE round < max_rounds AND NOT converged:
 
     IF round == 0:
-        Launch initial batch of agents (parallel, sonnet)
-        Each agent follows the AGENT SEARCH PROTOCOL (see templates/agent_prompt.md)
+        For each agent, build its prompt by:
+            1. READ templates/agent_prompt.md (MANDATORY — do not write prompts from scratch)
+            2. Fill in {{QUESTION}}, {{CONTEXT}}, {{OUTPUT_PATH}}, {{REPORT_PATH}}
+            3. Pass the filled template as the agent's prompt
+        Launch initial batch of agents (parallel, haiku)
     ELSE:
-        Launch follow-up agents based on review decisions
+        Launch follow-up agents using the same template-filling process
 
     WAIT for agents to complete
 
@@ -69,7 +72,6 @@ WHILE round < max_rounds AND NOT converged:
             RESOLVE — two streams contradict
                     → targeted agent to find deciding evidence
             CLOSE   — question answered with sufficient confidence
-                    → write report for this stream
 
     UPDATE state.md with decisions
 
@@ -133,9 +135,9 @@ curl -s "https://api.openalex.org/works?filter=openalex:ID1|ID2|ID3&select=id,ti
 
 | Task | Model | Rationale |
 |------|-------|-----------|
-| Search agents (all rounds) | sonnet | Needs judgment for relevance, not just extraction |
-| Follow-up agents | sonnet | Same — evaluation matters |
-| Synthesis agent | sonnet | Cross-references all streams; runs in own context |
+| Search agents (all rounds) | haiku | Sufficient for search + relevance judgment; avoids rate limits |
+| Follow-up agents | haiku | Same — cost-effective for targeted queries |
+| Synthesis agent | haiku | Cross-references all streams; runs in own context |
 | Final review in main conversation | opus (parent) | User interaction, strategic decisions |
 
 ## Tiered Reading (Context Management)

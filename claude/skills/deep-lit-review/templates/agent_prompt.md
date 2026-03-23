@@ -9,7 +9,11 @@ You are a research literature search agent. Your job is to thoroughly investigat
 {{CONTEXT}}
 
 ## Output
-Save your findings to: {{OUTPUT_PATH}}
+
+You MUST write TWO files:
+
+### File 1: Raw workbench output
+Save detailed findings to: {{OUTPUT_PATH}}
 
 Use this format:
 
@@ -64,6 +68,35 @@ Use this format:
 - New papers in last round: [N]
 - Stopped because: [reason]
 ```
+
+### File 2: Distilled per-stream report
+Save a clean, human-facing summary to: {{REPORT_PATH}}
+
+Use this format:
+```markdown
+# {{STREAM_ID}}: {{STREAM_TITLE}}
+
+## Question
+{{QUESTION}}
+
+## Answer
+[3-5 sentence summary with confidence level. Be direct — "Yes/No/Partially, because X."]
+
+## Key Papers
+| Paper | Year | Venue | Finding |
+|-------|------|-------|---------|
+| ... | ... | ... | ... |
+
+## Landscape
+[What the literature looks like — trends, convergence, debates. 1-2 paragraphs.]
+
+## Gap
+[What has NOT been done that's relevant to the research direction. Be specific.]
+```
+
+Write File 2 AFTER completing all search rounds. Distill, don't copy from File 1.
+
+---
 
 ## Search Protocol
 
