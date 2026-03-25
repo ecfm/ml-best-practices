@@ -6,20 +6,20 @@ description: Verify claims and citations in a research document using blind two-
 Hierarchical citation verification. You are the **top-level orchestrator** — you
 do NOT read the document yourself. You delegate everything to sub-agents.
 
-## Named sub-agents (tool-restricted)
+## Codex blocking
 
-These agents have explicit tool allowlists — no MCP tools (Codex etc.):
+Before launching any coordinators, block Codex to prevent sub-agents wasting credits:
+```
+touch /tmp/.block_codex
+```
 
-| Agent name | Model | Tools | Purpose |
-|-----------|-------|-------|---------|
-| `citation-coordinator` | haiku | Read, Bash, Agent | Coordinate one section: extract citations, launch readers + checkers |
-| `citation-reader` | haiku | Read, WebFetch, Bash | Blind-fetch one URL, summarize |
-| `citation-checker` | haiku | Read | Compare blind summary vs claim |
-| `citation-venue-checker` | haiku | Read, WebFetch, WebSearch, Bash | Verify venue/year via web search |
-| `citation-summarizer` | haiku | Read, WebFetch, Bash | Fetch and summarize one repo/dataset |
+After ALL coordinators complete, remove the block:
+```
+rm -f /tmp/.block_codex
+```
 
-The coordinator has NO web access — it can only Read, Bash, and launch Agents.
-This forces it to delegate fetching to citation-reader agents.
+This works via a PreToolUse hook in project settings that checks for this file.
+Other skills and other projects are unaffected.
 
 ## Templates
 
@@ -28,21 +28,19 @@ Prompt templates in `~/Mao/claude-toolkit/templates/verify-citations/`:
 | File | Filled by | Passed to | Placeholders |
 |------|----------|-----------|-------------|
 | `coordinator.txt` | Orchestrator (you) | haiku coordinator Agent | `{file_path}`, `{start_line}`, `{end_line}`, `{reader_template_path}`, `{checker_template_path}` |
-| `reader.txt` | Coordinator | `citation-reader` agent | `{url}`, `{url_fallback}` |
-| `checker.txt` | Coordinator | `citation-checker` agent | `{blind_summary}`, `{claim}` |
-| `summarizer.txt` | Coordinator | `citation-summarizer` agent | `{url}` |
-| `formatter.txt` | Coordinator | `citation-checker` agent (reused) | `{raw_summary}` |
-
-**Context optimization**: No agent loads another agent's template. Every level
-uses Bash/Python to read the template, fill placeholders, and pass the result
-as the sub-agent prompt.
+| `reader.txt` | Coordinator | haiku reader Agent | `{url}`, `{url_fallback}` |
+| `checker.txt` | Coordinator | haiku checker Agent | `{blind_summary}`, `{claim}` |
+| `summarizer.txt` | Coordinator | haiku summarizer Agent | `{url}` |
+| `formatter.txt` | Coordinator | haiku formatter Agent | `{raw_summary}` |
 
 ## Workflow
 
-1. Launch a **haiku splitter agent** that reads the target document, identifies
-   sections containing citations, and returns a list of `(section_name, start_line, end_line)`.
+1. Block Codex: `touch /tmp/.block_codex`
 
-2. For each section, use Bash to read `coordinator.txt` and fill placeholders:
+2. Launch a **haiku splitter agent** that reads the target document, identifies
+   sections containing citations, and returns `(section_name, start_line, end_line)`.
+
+3. For each section, use Bash to read `coordinator.txt` and fill placeholders:
    ```
    python3 -c "
    t = open('coordinator.txt').read()
@@ -50,15 +48,17 @@ as the sub-agent prompt.
                   reader_template_path=..., checker_template_path=...))
    "
    ```
-   Launch a **citation-coordinator** Agent (by name) with the output. Run all in parallel.
+   Launch a **haiku coordinator** Agent with the output. Run all in parallel.
 
-3. Each coordinator:
+4. Each coordinator:
    - Reads its document section and extracts papers + claims
-   - Uses Bash/Python to fill `reader.txt` → launches `citation-reader` agents (parallel)
-   - Waits for readers, fills `checker.txt` → launches `citation-checker` agents (parallel)
+   - Uses Bash/Python to fill `reader.txt` → launches haiku reader agents (parallel)
+   - Waits for readers, fills `checker.txt` → launches haiku checker agents (parallel)
    - Returns ONLY flagged items + verified count
 
-4. Collect coordinator reports and present consolidated summary.
+5. Collect coordinator reports and present consolidated summary.
+
+6. Unblock Codex: `rm -f /tmp/.block_codex`
 
 ## Incremental mode
 
@@ -68,14 +68,16 @@ For re-checking after fixes, pass a paper list to the coordinator:
 ## Venue verification follow-up
 
 For papers where venue couldn't be confirmed from arxiv abstracts, launch
-`citation-venue-checker` agents with WebSearch access.
+haiku agents with WebSearch access (Codex block does not affect WebSearch).
 
 ## For repo/dataset summarization
 
-Same pattern with `citation-summarizer` agents and `summarizer.txt` → `formatter.txt`.
+Same pattern with `summarizer.txt` → `formatter.txt` templates.
 
 ## Known issues
 
-- Tool restrictions via `tools` field may not enforce in `bypassPermissions` mode.
+- Haiku coordinators may occasionally skip launching sub-agents and do work
+  inline. If this happens, the Codex block ensures they can't fetch via Codex.
+  They'll fall back to WebFetch which is the desired behavior.
 - arxiv abstract pages often lack venue info — use venue-checker follow-up.
 - Full paper text at `arxiv.org/html/{id}v1` — use as `{url_fallback}`.

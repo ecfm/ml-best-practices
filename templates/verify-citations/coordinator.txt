@@ -17,7 +17,7 @@ print(t.format(url='THE_PAPER_URL', url_fallback='THE_FALLBACK_URL'))
 "
 ```
 
-Launch a **citation-reader** Agent (by name) with the captured output as the prompt.
+Launch a **haiku** Agent with the captured output as the prompt.
 Launch ALL reader agents **in parallel**. Wait for all to complete.
 
 ## Step 2: Checker agents
@@ -31,7 +31,7 @@ print(t.format(blind_summary='''PASTE_BLIND_SUMMARY''', claim='''PASTE_CLAIM''')
 "
 ```
 
-Launch a **citation-checker** Agent (by name) with the captured output as the prompt.
+Launch a **haiku** Agent with the captured output as the prompt.
 Launch ALL checker agents **in parallel**. Wait for all to complete.
 
 ## Step 3: Compile report
