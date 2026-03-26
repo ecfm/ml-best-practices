@@ -1,8 +1,8 @@
 #!/bin/bash
 # Install Claude Code config files by symlinking from this repo.
 # Run once per server after cloning:
-#   git clone git@github.com:ecfm/ml-best-practices.git ~/ml-best-practices
-#   bash ~/ml-best-practices/install.sh
+#   git clone git@github.com:ecfm/claude-toolkit.git ~/Mao/claude-toolkit
+#   bash ~/Mao/claude-toolkit/install.sh
 
 set -e
 

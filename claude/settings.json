@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd ~/ml-best-practices && git pull --quiet 2>/dev/null || true"
+            "command": "cd ~/Mao/claude-toolkit && git pull --quiet 2>/dev/null || true"
           }
         ]
       }
@@ -40,6 +40,15 @@
           {
             "type": "command",
             "command": "file=$(echo \"$CLAUDE_TOOL_INPUT\" | jq -r '.file_path // empty'); if [ -n \"$file\" ] && echo \"$file\" | grep -q '\\.py$'; then ruff format --quiet \"$file\" 2>/dev/null || true; fi"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "file=$(echo \"$CLAUDE_TOOL_INPUT\" | jq -r '.file_path // empty'); if echo \"$file\" | grep -q '/memory/' && ! echo \"$file\" | grep -q 'MEMORY.md'; then echo \"$(date +%Y-%m-%d) $(basename $file)\" >> ~/.claude/memory-access.log 2>/dev/null; fi"
           }
         ]
       }

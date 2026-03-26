@@ -44,8 +44,8 @@ claude/
 ## Setup
 
 ```bash
-git clone git@github.com:ecfm/ml-best-practices.git ~/ml-best-practices
-bash ~/ml-best-practices/install.sh
+git clone git@github.com:ecfm/claude-toolkit.git ~/Mao/claude-toolkit
+bash ~/Mao/claude-toolkit/install.sh
 ```
 
 This symlinks all Claude Code config files so every session inherits shared rules,
