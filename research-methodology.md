@@ -309,3 +309,79 @@ Before the first review round, ensure these are in place:
   `-o` flags. Always capture stdout as backup.
 - **Smoke-test before full batch.** Run 1-2 tracks first to verify prompts work,
   file access is correct, and output format is usable. Then launch the full batch.
+
+## 9. Claims Tracking System
+
+Complements provenance (data lineage) with argumentative structure tracking.
+Learned from Validation Dilemma paper (2026-04).
+
+### Boundary with provenance
+
+Provenance tracks **numbers → data files + scripts**. Claims track **assertions →
+evidence bundles (provenance refs, citations, other claims, logical premises)**.
+Claims reference provenance via `provenance_id` and `provenance_claim` substring
+matching — they never duplicate `source:`, `script:`, or `sha256:` fields.
+
+### Claim schema
+
+```yaml
+- id: q2_baselines_dominate
+  text: "Ridge on 4 demographics outperforms GPT-4 on every decision metric"
+  type: empirical    # empirical | logical | literature | interpretive | scope | qualification
+  strength: strong   # strong | moderate | weak | contested
+  locations:
+    - file: main.tex
+      quote: "exact substring, 20-80 chars"
+  evidence:
+    - provenance_id: tbl_decision_metrics     # → provenance/results/<id>/
+    - provenance_claim: "Ridge 47.2%"         # substring of provenance.yaml claim
+    - cite: krsteski2025                      # references.bib key
+    - claim_id: q2_individual_weak            # another claim (logical premise)
+  supports: [q2_main]        # argument DAG edges
+  depends_on: [q2_individual_weak]
+  falsified_by: "Condition 2"
+```
+
+### What to automate vs what needs agents
+
+**Phase 0 scripts (deterministic, run first):**
+- Quote verification: grep each `quote` in .tex files
+- Provenance ref validation: check provenance_id dirs exist, provenance_claim
+  substrings match, cite keys in bib, LaTeX labels exist
+- Cross-location hedge consistency: multi-location claims carry matching qualifiers
+- Staleness: git-diff proximity + upstream chain from `check_staleness.py`
+- Orphan detection: provenance entries not referenced by any claim
+- Evidence graph generation: DAG from supports/depends_on edges
+
+**LLM agents (judgment, run after Phase 0):**
+- Claim extraction from .tex sections
+- Evidence linking and strength rating
+- Load-bearing analysis (what collapses if a claim is falsified)
+
+### Staleness chain
+
+```
+L0: Script changed  →  L1: Output stale  →  L2: Provenance stale  →  L3: Claim stale
+(check_staleness.py)   (check_staleness.py)  (check_claims.py)       (check_claims.py)
+```
+
+Track verified-at commit per claims file. `--mark-verified` advances to HEAD.
+Three signals: quote-gone (grep fails), git-diff proximity (±5 lines of changed
+hunk), upstream chain propagation.
+
+### Key design decisions
+
+- **One YAML file per argument section**, not per claim. Matches paper structure,
+  manageable file count (~12 for a full paper).
+- **Per-file `_meta.verified_at_commit`**, not per-claim timestamps. Low overhead,
+  sufficient granularity — staleness check flags individual claims within stale files.
+- **Hedge consistency checker** with 200-char context window around each quote.
+  Catches scope drift between abstract and body. Keep the hedge phrase list small
+  and paper-specific.
+- **`VERIFIED_OK` list in check_numbers.py** for mismatches that are checker
+  limitations (boolean column aggregates, method-filtered counts, sign-flipped CIs,
+  metadata numbers). Documents the manual triage so it doesn't repeat.
+- **Extraction agents need calibration.** Extract one section manually as ground
+  truth, test the agent prompt against it, fix systematic errors, then batch.
+  Common agent errors: en-dash vs hyphen in provenance_claim substrings, case
+  sensitivity in quotes, confusing method descriptions for claims.
