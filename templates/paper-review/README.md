@@ -69,28 +69,47 @@ python phase0/check_numbers.py        # confirm 0 mismatches
 python phase0/check_staleness.py --update-hashes  # record new baseline
 ```
 
+## Setup Prerequisites
+
+Before the first round, ensure:
+
+1. **Provenance mapping** (`provenance.yaml`): every empirical number maps to
+   `source_file` → `script` → `claim_in_tex`. Phase 0 reads this.
+2. **Active constraints file** (`DECISIONS.md`): living document of analytical
+   constraints and open issues. Carries across rounds; prevents re-introducing
+   fixed bugs. Resolved items move to "Resolved" section with date.
+3. **Pre-commit hook** (optional): warn when `.tex` changes without `provenance.yaml`
+   update. Catches the #1 post-fix error.
+
 ## Iteration Loop
 
 The review system is designed for multiple fix→review rounds that converge:
 
 ```
-Round 1:  Phase 0 → LLM review → consolidate → triage findings
+Round 1:  Phase 0 → LLM review (model A) → consolidate → triage findings
           ↓
-          Fix must-fix items
+          Triage: accept (fix/disclose) or reject (with documented pushback)
           ↓
-          Phase 0 re-check (--verify)
+          Fix accepted items → Phase 0 re-check
           ↓
-Round 2:  Phase 0 → LLM review (Round 1 fixes injected as known issues)
+Round 2:  Phase 0 → LLM review (model B — different family for convergence)
+          → Round 1 fixes injected as known issues
           → should find fewer new issues
           ↓
-          Fix remaining items
+          Triage with pushbacks → fix → Phase 0
           ↓
 Round N:  Phase 0 clean + 0 new must-fix items → converged → submit
 ```
 
+Use a **different model family** for re-review rounds (e.g., Codex/Opus → Gemini).
+Same-model re-review has blind spots. Convergence = fresh model finds 0 must-fix.
+
 ### Round management
 
 ```bash
+# Smoke-test 1-2 tracks before full launch
+python launch.py --tracks E1,M1  # verify prompts, file access, output format
+
 # Start a new round (Phase 0 + generate prompts + run reviews)
 python run_round.py --parallel 2
 
@@ -98,7 +117,7 @@ python run_round.py --parallel 2
 # Then resolve each finding:
 python run_round.py --resolve r2_001 fixed "Updated main.tex line 88"
 python run_round.py --resolve r2_002 disclosed "Noted in Table 2 caption"
-python run_round.py --resolve r2_003 deferred "Needs external data"
+python run_round.py --resolve r2_003 rejected "Data doesn't support; unlikely reviewer concern"
 
 # After fixing, verify Phase 0 is clean:
 python run_round.py --verify
@@ -107,12 +126,22 @@ python run_round.py --verify
 python run_round.py --status
 ```
 
+### Triage with pushbacks
+
+For every finding, decide: **fix**, **disclose**, or **reject**. For rejected
+findings, document:
+- What was flagged
+- Why rejected (data doesn't support / reviewers won't notice / acknowledging invites scrutiny)
+- Why it won't resurface ("already addressed at line X", "exempted in Discussion")
+
+Without recorded pushbacks, the next round rediscovers the same point.
+
 ### Convergence criteria
 
 Stop when:
 1. Phase 0 checks pass (0 stale outputs, 0 number mismatches)
 2. Latest LLM review finds 0 new must-fix items
-3. All prior must-fix items resolved (fixed, disclosed, or deferred with reason)
+3. All prior must-fix items resolved (fixed, disclosed, or rejected with pushback)
 
 ### State files
 
@@ -121,10 +150,11 @@ rounds/
 ├── round_1.yaml    # findings + resolutions from round 1
 ├── round_2.yaml    # findings + resolutions from round 2
 └── ...             # each round is immutable after verification
+DECISIONS.md        # active constraints + open issues (living state)
 ```
 
-Each round YAML tracks: findings (with severity, status, resolution), Phase 0
-results, review file list, and convergence metrics.
+Each round YAML tracks: findings (with severity, status, resolution/pushback),
+Phase 0 results, review file list, and convergence metrics.
 
 ## Model Selection
 
@@ -135,3 +165,4 @@ results, review file list, and convergence metrics.
 | Adversarial (A) | Claude Opus | Creative argument construction |
 | Naive reader | Any fresh model | Must not have seen the paper before |
 | Citation verify | Sonnet + web search | Needs to look up papers |
+| Re-review round | Different model family | Cross-model convergence |

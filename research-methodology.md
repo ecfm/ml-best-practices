@@ -250,9 +250,50 @@ Key design rules:
   are absent that you would demand?" — then implement them. This is offense, not
   defense. Highest-ROI track in practice.
 
+### Triage: not every gap needs addressing
+
+Adversarial tracks will flag "missing analyses." Before implementing, check:
+1. **Does the data support it?** If the dataset structure doesn't allow the analysis, skip.
+2. **Would reviewers independently notice?** If the gap requires specialized knowledge to spot, most reviewers won't raise it.
+3. **Does acknowledging it strengthen the paper?** Adding a limitation that the data can't address just invites scrutiny.
+
+Only preempt gaps that reviewers will catch and that weaken the argument if unaddressed. Don't volunteer weaknesses nobody would find.
+
+**Document pushbacks, not just decisions.** For every rejected finding, record:
+- What was flagged
+- Why it was rejected (which of the 3 questions above failed)
+- Why it won't resurface (e.g., "already addressed at line X", "data doesn't support")
+
+Without recorded pushbacks, the next round's reviewer (or a real referee) may
+rediscover the same point and you'll re-triage from scratch.
+
 ### Phase 3: Post-fix verification
 
 Re-run Phase 0 after every fix round. Confirm 0 mismatches before submission.
+Phase 0 catches stale provenance entries and counts that drift after reruns.
+
+### Multi-model convergence
+
+Use a **different model family** for the re-review round (e.g., Codex/Opus for
+Round 2, Gemini for Round 3). Different models catch different things — same-model
+re-review has blind spots. Convergence is established when a fresh model family
+finds 0 new must-fix items.
+
+### Setup prerequisites
+
+Before the first review round, ensure these are in place:
+
+1. **Provenance mapping** (`provenance.yaml` or equivalent): every empirical number
+   in the paper traces to `source_file` → `script` → `claim_in_tex`. Phase 0 reads
+   this mapping — without it, number reconciliation can't run.
+
+2. **Active constraints file** (`DECISIONS.md` or equivalent): living document of
+   analytical constraints (things that must stay true) and open issues. Constraints
+   prevent future rounds from re-introducing fixed bugs. Updated after each round;
+   resolved items move to a "Resolved" section with date and round reference.
+
+3. **Pre-commit hooks**: warn when `.tex` files change without updating provenance.
+   Catches the most common post-fix error (update the number, forget the mapping).
 
 ### Infrastructure lessons
 
@@ -266,3 +307,5 @@ Re-run Phase 0 after every fix round. Confirm 0 mismatches before submission.
   Claude Opus → Gemini) into the orchestrator.
 - **Track outputs to files, not stdout.** Some LLM CLI tools have unreliable
   `-o` flags. Always capture stdout as backup.
+- **Smoke-test before full batch.** Run 1-2 tracks first to verify prompts work,
+  file access is correct, and output format is usable. Then launch the full batch.
