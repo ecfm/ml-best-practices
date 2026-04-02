@@ -193,3 +193,76 @@ Test: could the finding be a symptom of something deeper? If yes, it's not a
 root cause. "Norm growth causes editing collapse" could be true, but norm
 growth might itself be a symptom of a deeper geometric property. Classify
 accordingly.
+
+## 8. Paper Verification Review Process
+
+Multi-layer review system for verifying empirical claims in research papers
+before submission. Learned from Validation Dilemma paper review (2026-04).
+
+### Phase 0: Automated checks (no LLM, run first)
+
+Two scripts that catch the most common errors deterministically:
+
+1. **Number reconciliation**: Parse provenance/claims mapping → grep .tex for
+   claimed values → read source CSVs/JSONs → flag mismatches. Catches stale
+   numbers after edit rounds (e.g., script rerun changed 88.4% to 87.8% but
+   paper wasn't updated).
+
+2. **Staleness detection**: Compare script modification times and hashes against
+   output files. If script changed but output didn't → stale. Record baseline
+   hashes after each verified rerun.
+
+These replace LLM-based consistency checks (C-tracks) which are slower, more
+expensive, and less reliable for mechanical matching.
+
+### Phase 1: LLM review — split by cognitive mode, not by file
+
+Per-file splits (c1=script_A.py, c2=script_B.py) cause 3x duplication of
+cross-cutting issues. Instead, split by the *type of thinking* required:
+
+| Layer | Tracks | Cognitive mode | Best model |
+|-------|--------|---------------|------------|
+| Execute | E1-E4 | Run script, compare output to claimed values | Codex (needs tools) |
+| Methodology | M1-M3 | "Does this metric measure what you think?" | Opus (deep reasoning) |
+| Adversarial | A1-A3 | "Can I break this argument?" | Opus (creative) |
+| Consistency | C1-C2 | Replaced by Phase 0 scripts | Python (deterministic) |
+
+Key design rules:
+- **Known-issues injection**: Prepend resolved issues to M/A prompts so reviewers
+  don't rediscover them. Auto-extract from DECISIONS.md.
+- **Execution tracks mandate running**: "Run it if helpful" → "You MUST run this
+  script." The best findings came from actual execution.
+- **Adversarial tracks give a thesis to attack**: "The paper claims X. Try to
+  construct a counterexample" beats "review this for issues."
+- **Methodology tracks separate "is the formula correct?" from "is the metric
+  meaningful?"** — reviewers default to formula-checking; metric-questioning must
+  be explicitly prompted.
+
+### Phase 2: High-value specialized passes
+
+- **Naive reader**: Someone unfamiliar reads intro + framework cold, reports
+  confusion points. The #1 cause of journal rejection is "I didn't understand
+  the contribution."
+- **Citation verification**: For each \cite{}, check that the attributed claim
+  matches the cited paper's actual content. Methodological claims ("X used Y
+  approach") are highest risk.
+- **Missing analyses** (reviewer simulation): "You are a reviewer. What analyses
+  are absent that you would demand?" — then implement them. This is offense, not
+  defense. Highest-ROI track in practice.
+
+### Phase 3: Post-fix verification
+
+Re-run Phase 0 after every fix round. Confirm 0 mismatches before submission.
+
+### Infrastructure lessons
+
+- **Bash is too fragile for orchestration.** `wait -n` with PID arrays, `set -e`
+  with `wait`, and codex `-o` flag all broke. Use Python subprocess or GNU
+  parallel.
+- **Heavy tracks need splitting upfront.** If a track reads 5+ files or all
+  .tex + all CSVs, split it. Estimate: 1-2 files per track for E/C, 3-4 for M,
+  1-2 for A.
+- **Rate limits kill batch runs.** Build fallback to alternative models (Codex →
+  Claude Opus → Gemini) into the orchestrator.
+- **Track outputs to files, not stdout.** Some LLM CLI tools have unreliable
+  `-o` flags. Always capture stdout as backup.
