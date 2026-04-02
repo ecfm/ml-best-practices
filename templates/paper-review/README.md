@@ -69,6 +69,63 @@ python phase0/check_numbers.py        # confirm 0 mismatches
 python phase0/check_staleness.py --update-hashes  # record new baseline
 ```
 
+## Iteration Loop
+
+The review system is designed for multiple fix→review rounds that converge:
+
+```
+Round 1:  Phase 0 → LLM review → consolidate → triage findings
+          ↓
+          Fix must-fix items
+          ↓
+          Phase 0 re-check (--verify)
+          ↓
+Round 2:  Phase 0 → LLM review (Round 1 fixes injected as known issues)
+          → should find fewer new issues
+          ↓
+          Fix remaining items
+          ↓
+Round N:  Phase 0 clean + 0 new must-fix items → converged → submit
+```
+
+### Round management
+
+```bash
+# Start a new round (Phase 0 + generate prompts + run reviews)
+python run_round.py --parallel 2
+
+# After reading reviews, record findings in rounds/round_N.yaml
+# Then resolve each finding:
+python run_round.py --resolve r2_001 fixed "Updated main.tex line 88"
+python run_round.py --resolve r2_002 disclosed "Noted in Table 2 caption"
+python run_round.py --resolve r2_003 deferred "Needs external data"
+
+# After fixing, verify Phase 0 is clean:
+python run_round.py --verify
+
+# Check convergence across rounds:
+python run_round.py --status
+```
+
+### Convergence criteria
+
+Stop when:
+1. Phase 0 checks pass (0 stale outputs, 0 number mismatches)
+2. Latest LLM review finds 0 new must-fix items
+3. All prior must-fix items resolved (fixed, disclosed, or deferred with reason)
+
+### State files
+
+```
+rounds/
+├── round_1.yaml    # findings + resolutions from round 1
+├── round_2.yaml    # findings + resolutions from round 2
+└── ...             # each round is immutable after verification
+```
+
+Each round YAML tracks: findings (with severity, status, resolution), Phase 0
+results, review file list, and convergence metrics.
+
 ## Model Selection
 
 | Track type | Recommended model | Why |
