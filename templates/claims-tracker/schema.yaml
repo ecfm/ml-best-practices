@@ -1,0 +1,63 @@
+# JSON Schema for claims YAML files.
+# Each file has a _meta block and a list of claims.
+# Validate with: python -c "import yaml, jsonschema; ..."
+#
+# This schema is for documentation and automated validation in check_claims.py.
+# It is NOT a JSON Schema file itself — it's a reference spec written in YAML.
+
+meta:
+  required_fields:
+    - verified_at_commit    # git commit hash when claims were last verified
+    - verified_at_date      # ISO date
+    - tex_source            # which .tex file these claims come from
+  optional_fields:
+    - tex_sections          # list of section names covered
+
+claim:
+  required_fields:
+    - id                    # unique snake_case identifier, prefixed by section
+    - text                  # one-sentence paraphrase of the claim
+    - type                  # enum: empirical | logical | literature | interpretive | scope | qualification
+    - locations             # list of {file, quote}
+
+  optional_fields:
+    - strength              # enum: strong | moderate | weak | contested
+    - evidence              # list of evidence references (see below)
+    - supports              # list of claim IDs this provides evidence FOR
+    - depends_on            # list of claim IDs that are premises for this claim
+    - replicated_by         # list of claim IDs that independently confirm this
+    - falsified_by          # string: what would overturn this claim
+    - qualifications        # list of strings: caveats already in the text
+
+  type_enum:
+    - empirical             # states a data finding
+    - logical               # makes a structural/formal argument
+    - literature            # reports another paper's finding
+    - interpretive          # draws conclusion from multiple findings
+    - scope                 # defines what's in/out of the critique
+    - qualification         # acknowledges a limitation
+
+  strength_enum:
+    - strong                # own-data with provenance chain AND replicated
+    - moderate              # own-data but single dataset, OR strong literature evidence
+    - weak                  # argument from absence, interpretive, or sparse evidence
+    - contested             # evidence exists both for and against
+
+evidence_entry:
+  # Each entry is a dict with exactly ONE of these keys (the reference type)
+  # plus an optional 'detail' and 'strength' field.
+  reference_types:
+    - provenance_id         # str → matches provenance/results/<id>/
+    - provenance_claim      # str → substring match against provenance.yaml 'claim' field
+    - cite                  # str → bibtex key in references.bib
+    - claim_id              # str → another claim's id (logical premise)
+    - figure                # str → LaTeX label (e.g., fig:q1accuracy)
+    - table                 # str → LaTeX label (e.g., tab:decision)
+  optional_fields:
+    - detail                # str: how this evidence supports the claim
+    - strength              # enum: direct | partial | suggestive
+
+location_entry:
+  required_fields:
+    - file                  # str: main.tex or si_appendix.tex
+    - quote                 # str: exact substring from .tex (20-80 chars, grep-able)
